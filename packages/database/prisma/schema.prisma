@@ -1,0 +1,218 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logoUrl   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users        User[]
+  customers    Customer[]
+  analysisRuns AnalysisRun[]
+
+  @@map("tenants")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  tenantId  String
+  email     String
+  name      String
+  password  String
+  role      Role
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Fine-grained PII visibility stored as JSONB
+  piiVisibility Json @default("{\"showFullName\":true,\"showPhone\":false,\"showEmail\":false,\"showPan\":false,\"showAadhaar\":false,\"showAddress\":false,\"showDob\":false,\"showAccountNumber\":false}")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  analysisRuns AnalysisRun[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  ANALYST
+}
+
+model Customer {
+  id            String    @id @default(cuid())
+  tenantId      String
+  age           Int
+  city          String
+  segment       String
+  accountType   String
+  kycStatus     String
+  joinedAt      DateTime
+
+  // PII fields
+  fullName      String
+  phone         String
+  email         String
+  pan           String
+  aadhaar       String
+  address       String
+  dob           DateTime
+  accountNumber String    @unique
+
+  // Cached derived fields (recomputed during seed and scoring)
+  avgMonthlyBalance Decimal @default(0) @db.Decimal(15, 2)
+  hasActiveLoan     Boolean @default(false)
+  loanType          String?
+
+  createdAt DateTime @default(now())
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  transactions  Transaction[]
+  scoredResults ScoredResult[]
+
+  @@index([tenantId])
+  @@index([tenantId, city])
+  @@index([tenantId, segment])
+  @@index([tenantId, age])
+  @@map("customers")
+}
+
+model Transaction {
+  id           String          @id @default(cuid())
+  customerId   String
+  tenantId     String
+  amount       Decimal         @db.Decimal(15, 2)
+  type         TransactionType
+  category     Category
+  description  String
+  merchantName String?
+  occurredAt   DateTime
+  createdAt    DateTime        @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([customerId, category])
+  @@index([customerId, occurredAt])
+  @@index([tenantId, category])
+  @@index([occurredAt])
+  @@map("transactions")
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+}
+
+enum Category {
+  SALARY
+  EMI
+  GROCERY
+  FUEL
+  ENTERTAINMENT
+  MEDICAL
+  TRAVEL
+  UTILITIES
+  SHOPPING
+  DINING
+  INSURANCE
+  INVESTMENT
+  ATM_WITHDRAWAL
+  TRANSFER
+  OTHER
+}
+
+model AnalysisRun {
+  id       String    @id @default(cuid())
+  tenantId String
+  userId   String
+  mode     String
+  status   RunStatus @default(RUNNING)
+  query    String?
+
+  // Resolved filter object for custom mode
+  filters Json?
+
+  // Full CrmAgentState snapshot for history replay
+  agentOutput Json?
+
+  // Aggregate summary for fast history queries
+  customerCount  Int     @default(0)
+  highValueCount Int     @default(0)
+  avgScore       Decimal @default(0) @db.Decimal(5, 2)
+
+  // LangGraph checkpoint reference
+  checkpointId String?
+
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+  errorMessage String?
+  createdAt    DateTime  @default(now())
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id])
+  scoredResults ScoredResult[]
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, status])
+  @@map("analysis_runs")
+}
+
+enum RunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  PAUSED
+}
+
+model ScoredResult {
+  id         String @id @default(cuid())
+  runId      String
+  customerId String
+  tenantId   String
+
+  totalScore            Decimal @db.Decimal(6, 2)
+  readinessLabel        String
+  conversionProbability Decimal @db.Decimal(5, 4)
+  qualifies             Boolean
+
+  // Score breakdown as JSONB
+  breakdown Json
+
+  // Product recommendations as JSONB array
+  recommendations Json
+
+  // Generated bilingual messages
+  messageEn       String? @db.Text
+  messageHi       String? @db.Text
+  isMessageEdited Boolean @default(false)
+  editedMessage   String? @db.Text
+
+  // Penalty tracking
+  hasExistingLoan    Boolean @default(false)
+  loanPenalty        Decimal @default(0) @db.Decimal(4, 2)
+  disqualifiedReason String?
+
+  createdAt DateTime @default(now())
+
+  run      AnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  customer Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, customerId])
+  @@index([runId])
+  @@index([runId, totalScore])
+  @@index([runId, qualifies])
+  @@map("scored_results")
+}
