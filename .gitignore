@@ -1,0 +1,50 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build outputs
+dist
+.next
+out
+build
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Turbo
+.turbo
+
+# Prisma
+packages/database/prisma/migrations/*.sql
+
+# Test
+coverage
+playwright-report
+test-results
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Docker
+*.pid
+
+# LangGraph checkpoints (local dev)
+.langgraph_cache
+
+# Phased push script (local dev tool, not for repo)
+push-phases.sh
+.push_phase_state
