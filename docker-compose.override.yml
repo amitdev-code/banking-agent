@@ -1,0 +1,26 @@
+version: '3.9'
+
+# Development overrides — hot reload via volume mounts
+services:
+  api:
+    build:
+      target: builder
+    command: pnpm --filter @banking-crm/api dev
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/apps/api/node_modules
+    environment:
+      NODE_ENV: development
+
+  web:
+    build:
+      target: builder
+    command: pnpm --filter @banking-crm/web dev
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/apps/web/node_modules
+      - /app/apps/web/.next
+    environment:
+      NODE_ENV: development
