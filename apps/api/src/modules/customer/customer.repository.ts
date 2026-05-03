@@ -76,7 +76,7 @@ export class CustomerRepository {
       spendingCategories: categoryTotals.map((ct) => ({
         category: ct.category,
         type: ct.type,
-        total: Number(ct._sum.amount ?? 0),
+        total: Number(ct._sum?.amount ?? 0),
         count: ct._count,
       })),
     };
