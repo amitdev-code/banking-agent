@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -46,39 +45,72 @@ export class CrmService {
   }
 
   async getHistory(tenantId: string, page: number, limit: number) {
-    const [items, total] = await this.prisma.$transaction([
+    const [rows, total] = await this.prisma.$transaction([
       this.prisma.analysisRun.findMany({
         where: { tenantId },
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { startedAt: 'desc' },
         select: {
           id: true,
-          tenantId: true,
-          userId: true,
           mode: true,
           status: true,
-          query: true,
           customerCount: true,
           highValueCount: true,
           avgScore: true,
           startedAt: true,
           completedAt: true,
-          createdAt: true,
         },
       }),
       this.prisma.analysisRun.count({ where: { tenantId } }),
     ]);
+
+    // Normalise types: Decimal → number, Date → ISO string
+    const items = rows.map((r) => ({
+      ...r,
+      avgScore: r.avgScore != null ? Number(r.avgScore) : null,
+      createdAt: r.startedAt.toISOString(),
+      completedAt: r.completedAt?.toISOString() ?? null,
+    }));
+
     return { items, total, page, limit };
   }
 
   async getRunDetail(tenantId: string, runId: string) {
     const run = await this.prisma.analysisRun.findFirst({
       where: { id: runId, tenantId },
-      include: { scoredResults: true },
+      include: {
+        scoredResults: {
+          include: { customer: true },
+          orderBy: { totalScore: 'desc' },
+        },
+      },
     });
     if (!run) throw new NotFoundException(`Run ${runId} not found`);
-    return run;
+
+    // Normalize Decimal fields to JS numbers so the frontend receives plain scalars
+    const scoredResults = run.scoredResults.map((r) => ({
+      ...r,
+      totalScore: Number(r.totalScore),
+      conversionProbability: Number(r.conversionProbability),
+      loanPenalty: Number(r.loanPenalty),
+      // Flatten customer fields onto the result for CustomerCard
+      fullName: r.customer.fullName,
+      phone: r.customer.phone,
+      city: r.customer.city,
+      age: r.customer.age,
+      avgMonthlyBalance: Number(r.customer.avgMonthlyBalance),
+      // Map DB column names → ScoredCustomer field names
+      resultId: r.id,
+      recommendedProducts: r.recommendations,
+      customer: undefined,
+    }));
+
+    return {
+      ...run,
+      avgScore: run.avgScore != null ? Number(run.avgScore) : null,
+      scoredResults,
+    };
   }
 
   async pauseRun(tenantId: string, runId: string): Promise<void> {
