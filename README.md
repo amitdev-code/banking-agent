@@ -227,3 +227,6 @@ pnpm db:seed          # Seed 1000 customers
 | Build | Turborepo, pnpm workspaces |
 | Testing | Jest, Vitest, fast-check, Playwright |
 | CI | Husky + lint-staged + commitlint |
+
+## Video demo
+https://kommodo.ai/recordings/ZQQh5aeQcKiUMIXiezcn?onlyRecording=1
