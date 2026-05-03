@@ -4,7 +4,7 @@ import { useState } from 'react';
 
 import { QueryPanel } from '@/components/dashboard/query-panel';
 import { WorkflowPanel } from '@/components/dashboard/workflow-panel';
-import { ResultsPanel } from '@/components/dashboard/results-panel';
+import { ResultsPanel, type EnrichedCustomer } from '@/components/dashboard/results-panel';
 import { useWorkflowSteps } from '@/hooks/use-workflow-steps';
 import { useRunResults } from '@/hooks/use-run-results';
 import { apiClient } from '@/lib/api-client';
@@ -14,7 +14,7 @@ export default function DashboardPage() {
   const [isPaused, setIsPaused] = useState(false);
   const { steps, isComplete, error, summary } = useWorkflowSteps(runId);
   const { data: runData, isLoading: isLoadingResults } = useRunResults(runId, isComplete);
-  const customers = (runData?.scoredResults ?? []) as Parameters<typeof ResultsPanel>[0]['customers'];
+  const customers = (runData?.scoredResults ?? []) as EnrichedCustomer[];
 
   function handleRunStarted(id: string) {
     setRunId(id);

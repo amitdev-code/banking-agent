@@ -48,6 +48,8 @@ export interface User {
 export interface SessionUser {
   id: string;
   tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
   role: Role;
   piiVisibility: PiiVisibilityConfig;
   name: string;

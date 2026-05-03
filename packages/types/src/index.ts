@@ -3,6 +3,7 @@ export * from './user.types';
 export * from './customer.types';
 export * from './transaction.types';
 export * from './scoring.types';
+export * from './scoring-config.types';
 export * from './crm.types';
 export * from './ai.types';
 export * from './ws.types';

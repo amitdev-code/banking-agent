@@ -2,12 +2,20 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import { MessageSquare, ChevronDown, ChevronUp, BrainCircuit, TrendingUp, TrendingDown } from 'lucide-react';
 import { ScoreBadge } from '@banking-crm/ui';
 
-import type { ScoredCustomer } from '@banking-crm/types';
+import type { CustomerPersona, ScoredCustomer } from '@banking-crm/types';
 import { MessageCard } from '../messages/message-card';
 import { formatCurrency } from '@/lib/formatters';
+
+const PERSONA_COLORS: Record<CustomerPersona, string> = {
+  Saver:           'bg-blue-50 text-blue-700 border-blue-200',
+  Spender:         'bg-orange-50 text-orange-700 border-orange-200',
+  Investor:        'bg-purple-50 text-purple-700 border-purple-200',
+  IrregularIncome: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+  Balanced:        'bg-green-50 text-green-700 border-green-200',
+};
 
 interface CustomerCardProps {
   customer: ScoredCustomer & {
@@ -26,8 +34,10 @@ interface CustomerCardProps {
 
 export function CustomerCard({ customer }: CustomerCardProps) {
   const [showMessage, setShowMessage] = useState(false);
+  const [showExplanation, setShowExplanation] = useState(false);
 
   const scorePercent = Math.min(100, Math.round((customer.totalScore / 110) * 100));
+  const hasAiAdjustment = customer.llmAdjustment !== undefined && customer.llmAdjustment !== 0;
 
   return (
     <div className="rounded-lg border bg-card text-card-foreground p-4 space-y-3">
@@ -43,13 +53,30 @@ export function CustomerCard({ customer }: CustomerCardProps) {
             {customer.city} · Age {customer.age} · {formatCurrency(customer.avgMonthlyBalance)}/mo
           </p>
         </div>
-        <ScoreBadge label={customer.readinessLabel} />
+        <div className="flex items-center gap-2 shrink-0">
+          {customer.persona && (
+            <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs font-medium ${PERSONA_COLORS[customer.persona]}`}>
+              {customer.persona}
+            </span>
+          )}
+          <ScoreBadge label={customer.readinessLabel} />
+        </div>
       </div>
 
       <div>
         <div className="flex justify-between text-xs mb-1">
           <span className="text-muted-foreground">Score</span>
-          <span className="font-mono font-semibold">{customer.totalScore}</span>
+          <div className="flex items-center gap-1.5">
+            {hasAiAdjustment && (
+              <span className={`flex items-center gap-0.5 text-xs font-medium ${(customer.llmAdjustment ?? 0) > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                {(customer.llmAdjustment ?? 0) > 0
+                  ? <TrendingUp className="h-3 w-3" />
+                  : <TrendingDown className="h-3 w-3" />}
+                {(customer.llmAdjustment ?? 0) > 0 ? '+' : ''}{customer.llmAdjustment} AI
+              </span>
+            )}
+            <span className="font-mono font-semibold">{customer.totalScore}</span>
+          </div>
         </div>
         <div className="h-1.5 rounded-full bg-muted overflow-hidden">
           <div
@@ -72,6 +99,26 @@ export function CustomerCard({ customer }: CustomerCardProps) {
         </div>
       )}
 
+      {/* AI Score Explanation */}
+      {customer.scoreExplanation && (
+        <div>
+          <button
+            onClick={() => setShowExplanation((v) => !v)}
+            className="flex items-center gap-1 text-xs text-primary hover:underline"
+          >
+            <BrainCircuit className="h-3.5 w-3.5" />
+            {showExplanation ? 'Hide AI insight' : 'View AI insight'}
+            {showExplanation ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
+          {showExplanation && (
+            <p className="mt-2 rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground leading-relaxed">
+              {customer.scoreExplanation}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* WhatsApp Message */}
       {(customer.messageEn || customer.messageHi) && (
         <div>
           <button

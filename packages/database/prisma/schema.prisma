@@ -15,9 +15,10 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users        User[]
-  customers    Customer[]
-  analysisRuns AnalysisRun[]
+  users         User[]
+  customers     Customer[]
+  analysisRuns  AnalysisRun[]
+  scoringConfig ScoringConfig?
 
   @@map("tenants")
 }
@@ -205,6 +206,12 @@ model ScoredResult {
   loanPenalty        Decimal @default(0) @db.Decimal(4, 2)
   disqualifiedReason String?
 
+  // AI-augmented fields
+  scoreExplanation String? @db.Text
+  persona          String?
+  llmAdjustment    Int?
+  llmAdjustReason  String? @db.Text
+
   createdAt DateTime @default(now())
 
   run      AnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -215,4 +222,16 @@ model ScoredResult {
   @@index([runId, totalScore])
   @@index([runId, qualifies])
   @@map("scored_results")
+}
+
+model ScoringConfig {
+  id        String   @id @default(cuid())
+  tenantId  String   @unique
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rules     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("scoring_configs")
 }

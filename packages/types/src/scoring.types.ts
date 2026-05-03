@@ -2,6 +2,13 @@ export type ReadinessLabel = 'Primed' | 'Engaged' | 'Dormant' | 'At-Risk';
 
 export type ProductType = 'PERSONAL_LOAN' | 'HOME_LOAN' | 'CREDIT_CARD';
 
+export type CustomerPersona = 'Saver' | 'Spender' | 'Investor' | 'IrregularIncome' | 'Balanced';
+
+export interface CustomerPersonaResult {
+  customerId: string;
+  persona: CustomerPersona;
+}
+
 export interface ScoreBreakdown {
   salary: number;
   balance: number;
@@ -29,4 +36,9 @@ export interface ScoredCustomer {
   loanPenalty: number;
   qualifies: boolean;
   disqualifiedReason?: string;
+  // AI-augmented fields
+  scoreExplanation?: string;
+  persona?: CustomerPersona;
+  llmAdjustment?: number;
+  llmAdjustReason?: string;
 }

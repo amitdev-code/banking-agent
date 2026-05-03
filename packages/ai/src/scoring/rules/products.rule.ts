@@ -1,27 +1,21 @@
 import type { TransactionSummary } from '@banking-crm/types';
 
-export const PRODUCTS_MAX = 10;
-
-export function productsScore(summary: TransactionSummary): number {
+export function productsScore(summary: TransactionSummary, maxScore: number): number {
   let score = 0;
 
-  // Infer product absence from transaction patterns (headroom = cross-sell opportunity)
-  const hasHighShoppingOrDining = summary.categoryTotals
+  const lifestyleSpend = summary.categoryTotals
     .filter((c) => ['SHOPPING', 'DINING', 'ENTERTAINMENT'].includes(c.category) && c.type === 'DEBIT')
     .reduce((sum, c) => sum + c.total, 0);
 
   const totalDebit = summary.totalDebitLast12Months;
 
-  // No credit card pattern inferred if shopping/dining/entertainment < 15% of total spend
-  const hasNoCreditCardUsage = totalDebit > 0 && hasHighShoppingOrDining / totalDebit < 0.15;
-  if (hasNoCreditCardUsage) score += 4;
+  const hasNoCreditCardUsage = totalDebit > 0 && lifestyleSpend / totalDebit < 0.15;
+  if (hasNoCreditCardUsage) score += Math.round(maxScore * 0.4);
 
-  // No home loan (we rely on summary.hasActiveLoan + loanType for this)
-  if (!summary.hasActiveLoan || summary.loanType === 'personal') score += 3;
+  if (!summary.hasActiveLoan || summary.loanType === 'personal') score += Math.round(maxScore * 0.3);
 
-  // No personal loan
-  if (!summary.hasActiveLoan) score += 3;
-  else if (summary.loanType !== 'personal') score += 1;
+  if (!summary.hasActiveLoan) score += Math.round(maxScore * 0.3);
+  else if (summary.loanType !== 'personal') score += Math.round(maxScore * 0.1);
 
-  return Math.min(score, PRODUCTS_MAX);
+  return Math.min(score, maxScore);
 }

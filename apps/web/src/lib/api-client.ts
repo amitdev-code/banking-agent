@@ -1,5 +1,13 @@
 const BASE_URL = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001';
-const TENANT_SLUG = process.env['NEXT_PUBLIC_TENANT_SLUG'] ?? 'alpha-bank-mumbai';
+
+export const TENANT_SLUG_KEY = 'crm_tenant_slug';
+
+function getTenantSlug(): string {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem(TENANT_SLUG_KEY) ?? process.env['NEXT_PUBLIC_TENANT_SLUG'] ?? '';
+  }
+  return process.env['NEXT_PUBLIC_TENANT_SLUG'] ?? '';
+}
 
 async function request<T>(
   path: string,
@@ -10,7 +18,7 @@ async function request<T>(
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      'X-Tenant-Slug': TENANT_SLUG,
+      'X-Tenant-Slug': getTenantSlug(),
       ...(options.headers ?? {}),
     },
   });
@@ -48,6 +56,13 @@ export const apiClient = {
   patch: <T>(path: string, body?: unknown, init?: RequestInit) =>
     request<T>(path, {
       method: 'PATCH',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      ...init,
+    }),
+
+  put: <T>(path: string, body?: unknown, init?: RequestInit) =>
+    request<T>(path, {
+      method: 'PUT',
       body: body !== undefined ? JSON.stringify(body) : undefined,
       ...init,
     }),

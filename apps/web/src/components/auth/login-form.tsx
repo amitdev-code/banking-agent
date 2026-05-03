@@ -1,11 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { apiClient } from '@/lib/api-client';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { apiClient, TENANT_SLUG_KEY } from '@/lib/api-client';
+import type { SessionUser } from '@banking-crm/types';
 
 export function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [tenantSlug, setTenantSlug] = useState('');
@@ -18,10 +20,12 @@ export function LoginForm() {
     setLoading(true);
 
     try {
-      await apiClient.post('/auth/login', { email, password }, {
+      const data = await apiClient.post<{ user: SessionUser }>('/auth/login', { email, password }, {
         headers: { 'X-Tenant-Slug': tenantSlug },
       });
-      router.push('/dashboard');
+      localStorage.setItem(TENANT_SLUG_KEY, data.user.tenantSlug);
+      const from = searchParams.get('from') ?? '/dashboard';
+      router.push(from);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Login failed';
       setError(msg);
@@ -40,7 +44,7 @@ export function LoginForm() {
           onChange={(e) => setTenantSlug(e.target.value)}
           placeholder="e.g. hdfc-bangalore"
           required
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         />
       </div>
 
@@ -52,7 +56,7 @@ export function LoginForm() {
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@example.com"
           required
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         />
       </div>
 
@@ -64,7 +68,7 @@ export function LoginForm() {
           onChange={(e) => setPassword(e.target.value)}
           placeholder="••••••••"
           required
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         />
       </div>
 

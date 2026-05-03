@@ -4,17 +4,25 @@ import type {
   AgentMode,
   Customer,
   CustomerFilters,
+  CustomerPersonaResult,
   GeneratedMessage,
   ProductRecommendation,
   ScoredCustomer,
+  ScoringRulesConfig,
   TransactionSummary,
 } from '@banking-crm/types';
+import { defaultScoringConfig } from '@banking-crm/types';
 
 export const CrmAgentAnnotation = Annotation.Root({
   runId: Annotation<string>(),
   tenantId: Annotation<string>(),
   mode: Annotation<AgentMode>(),
   naturalLanguageQuery: Annotation<string | undefined>(),
+
+  scoringConfig: Annotation<ScoringRulesConfig>({
+    reducer: (_, update) => update,
+    default: () => defaultScoringConfig,
+  }),
 
   resolvedFilters: Annotation<CustomerFilters>({
     reducer: (existing, update) => ({ ...existing, ...update }),
@@ -27,6 +35,11 @@ export const CrmAgentAnnotation = Annotation.Root({
   }),
 
   transactionSummaries: Annotation<TransactionSummary[]>({
+    reducer: (_, update) => update,
+    default: () => [],
+  }),
+
+  customerPersonas: Annotation<CustomerPersonaResult[]>({
     reducer: (_, update) => update,
     default: () => [],
   }),

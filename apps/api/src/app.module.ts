@@ -11,6 +11,7 @@ import { TenantResolutionMiddleware } from './common/middleware/tenant-resolutio
 import { AuthModule } from './modules/auth/auth.module';
 import { CustomerModule } from './modules/customer/customer.module';
 import { CrmModule } from './modules/crm/crm.module';
+import { ScoringConfigModule } from './modules/scoring-config/scoring-config.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { CrmModule } from './modules/crm/crm.module';
     AuthModule,
     CustomerModule,
     CrmModule,
+    ScoringConfigModule,
   ],
   providers: [
     PrismaService,

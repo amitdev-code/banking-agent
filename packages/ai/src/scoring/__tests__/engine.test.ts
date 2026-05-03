@@ -12,27 +12,37 @@ function makeCustomer(overrides: Partial<Customer> = {}): Customer {
     aadhaar: '123456789012',
     accountNumber: 'ACC001',
     address: '123 Main St',
-    dob: '1990-01-01',
+    dob: new Date('1990-01-01'),
     city: 'Mumbai',
     age: 34,
+    segment: 'retail',
+    accountType: 'savings',
+    kycStatus: 'verified',
+    joinedAt: new Date('2020-01-01'),
     avgMonthlyBalance: 100000,
     hasActiveLoan: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    loanType: null,
+    createdAt: new Date(),
     ...overrides,
   };
 }
 
 function makeSummary(overrides: Partial<TransactionSummary> = {}): TransactionSummary {
   return {
-    avgMonthlySalary: 80000,
+    customerId: 'cust-001',
+    monthlySalaryCredits: Array(12).fill(80000),
     avgMonthlyBalance: 200000,
-    totalDebitLast12m: 600000,
-    categoryBreakdown: { GROCERY: 50000, DINING: 30000, FUEL: 20000 },
-    monthsWithSalaryCredit: 12,
-    hasPersonalLoan: false,
-    hasHomeLoan: false,
-    transactionCountLast30d: 25,
+    totalCreditLast12Months: 960000,
+    totalDebitLast12Months: 600000,
+    categoryTotals: [
+      { category: 'GROCERY', type: 'DEBIT', total: 50000, count: 12 },
+      { category: 'DINING',  type: 'DEBIT', total: 30000, count: 12 },
+      { category: 'FUEL',    type: 'DEBIT', total: 20000, count: 12 },
+    ],
+    transactionCountLast30Days: 25,
+    hasRegularIncome: true,
+    hasActiveLoan: false,
+    loanType: null,
     ...overrides,
   };
 }
@@ -44,8 +54,8 @@ describe('scoreCustomer', () => {
     expect(result.totalScore).toBeGreaterThanOrEqual(75);
   });
 
-  it('disqualifies customer with no salary credits in last 6 months', () => {
-    const result = scoreCustomer(makeCustomer(), makeSummary({ monthsWithSalaryCredit: 0 }));
+  it('disqualifies customer with no salary credits', () => {
+    const result = scoreCustomer(makeCustomer(), makeSummary({ monthlySalaryCredits: [] }));
     expect(result.qualifies).toBe(false);
     expect(result.disqualifiedReason).toBe('no_regular_income');
   });
@@ -54,12 +64,11 @@ describe('scoreCustomer', () => {
     const result = scoreCustomer(
       makeCustomer({ age: 18 }),
       makeSummary({
-        avgMonthlySalary: 0,
+        monthlySalaryCredits: Array(12).fill(0).map((_, i) => i < 3 ? 5000 : 0),
         avgMonthlyBalance: 0,
-        hasPersonalLoan: true,
-        hasHomeLoan: true,
-        monthsWithSalaryCredit: 12,
-        transactionCountLast30d: 0,
+        hasActiveLoan: true,
+        loanType: 'personal',
+        transactionCountLast30Days: 0,
       })
     );
     expect(result.totalScore).toBeGreaterThanOrEqual(0);
@@ -67,10 +76,10 @@ describe('scoreCustomer', () => {
 
   it('assigns Primed label for score >= 88', () => {
     const result = scoreCustomer(makeCustomer({ age: 35 }), makeSummary({
-      avgMonthlySalary: 200000,
+      monthlySalaryCredits: Array(12).fill(200000),
       avgMonthlyBalance: 1000000,
-      monthsWithSalaryCredit: 12,
-      transactionCountLast30d: 30,
+      totalCreditLast12Months: 2400000,
+      transactionCountLast30Days: 30,
     }));
     if (result.totalScore >= 88) {
       expect(result.readinessLabel).toBe('Primed');
@@ -78,8 +87,8 @@ describe('scoreCustomer', () => {
   });
 
   it('applies loan penalty and reduces score', () => {
-    const withoutLoan = scoreCustomer(makeCustomer(), makeSummary({ hasPersonalLoan: false }));
-    const withLoan = scoreCustomer(makeCustomer(), makeSummary({ hasPersonalLoan: true }));
+    const withoutLoan = scoreCustomer(makeCustomer(), makeSummary({ hasActiveLoan: false, loanType: null }));
+    const withLoan    = scoreCustomer(makeCustomer(), makeSummary({ hasActiveLoan: true, loanType: 'personal' }));
     expect(withLoan.totalScore).toBeLessThan(withoutLoan.totalScore);
     expect(withLoan.loanPenalty).toBe(8);
   });

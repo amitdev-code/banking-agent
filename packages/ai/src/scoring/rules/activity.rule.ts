@@ -1,12 +1,7 @@
-import type { TransactionSummary } from '@banking-crm/types';
+import type { ScoreBracket, TransactionSummary } from '@banking-crm/types';
 
-export const ACTIVITY_MAX = 5;
+import { resolveFromBrackets } from '../brackets';
 
-export function activityScore(summary: TransactionSummary): number {
-  const count = summary.transactionCountLast30Days;
-
-  if (count > 7) return 5;
-  if (count >= 4) return 3;
-  if (count >= 1) return 1;
-  return 0;
+export function activityScore(summary: TransactionSummary, brackets: ScoreBracket[]): number {
+  return resolveFromBrackets(summary.transactionCountLast30Days, brackets);
 }

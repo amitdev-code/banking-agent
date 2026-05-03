@@ -9,7 +9,7 @@ import { CustomerCard } from '../customers/customer-card';
 import { CustomerFilters, type SortKey, type ReadinessFilter } from '../customers/customer-filters';
 import { SkeletonCard } from '../customers/skeleton-card';
 
-type EnrichedCustomer = ScoredCustomer & {
+export type EnrichedCustomer = ScoredCustomer & {
   fullName: string;
   phone: string;
   city: string;
@@ -20,6 +20,10 @@ type EnrichedCustomer = ScoredCustomer & {
   resultId?: string;
   isMessageEdited?: boolean;
   editedMessage?: string | null;
+  // AI-augmented fields surfaced from ScoredResultRecord
+  scoreExplanation?: string | null;
+  llmAdjustment?: number | null;
+  llmAdjustReason?: string | null;
 };
 
 interface ResultsPanelProps {

@@ -1,6 +1,4 @@
-import type { TransactionSummary } from '@banking-crm/types';
-
-export const LOAN_PENALTY_CAP = 10;
+import type { LoanPenaltyConfig, TransactionSummary } from '@banking-crm/types';
 
 export interface LoanPenaltyResult {
   penalty: number;
@@ -8,7 +6,10 @@ export interface LoanPenaltyResult {
   loanType: string | null;
 }
 
-export function loanPenalty(summary: TransactionSummary): LoanPenaltyResult {
+export function loanPenalty(
+  summary: TransactionSummary,
+  config: LoanPenaltyConfig,
+): LoanPenaltyResult {
   if (!summary.hasActiveLoan) {
     return { penalty: 0, hasExistingLoan: false, loanType: null };
   }
@@ -16,12 +17,11 @@ export function loanPenalty(summary: TransactionSummary): LoanPenaltyResult {
   const loanType = summary.loanType;
   let penalty = 0;
 
-  if (loanType === 'personal') penalty = 8;
-  else if (loanType === 'home') penalty = 3;
-  else penalty = 5;
+  if (loanType === 'personal') penalty = config.personal;
+  else if (loanType === 'home') penalty = config.home;
+  else penalty = config.other;
 
-  // Cap combined penalty
-  penalty = Math.min(penalty, LOAN_PENALTY_CAP);
+  penalty = Math.min(penalty, config.cap);
 
   return { penalty, hasExistingLoan: true, loanType };
 }

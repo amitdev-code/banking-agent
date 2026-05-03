@@ -5,6 +5,8 @@ function makeUser(overrides: Partial<PiiVisibilityConfig> = {}): SessionUser {
   return {
     id: 'user-1',
     tenantId: 'tenant-1',
+    tenantName: 'Test Bank',
+    tenantSlug: 'test-bank',
     role: 'ANALYST',
     name: 'Test User',
     email: 'test@test.com',

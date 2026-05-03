@@ -6,15 +6,16 @@ import {
   HttpStatus,
   Post,
   Req,
+  Res,
   Session,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 import type { SessionUser } from '@banking-crm/types';
 
 import { Public } from '../../common/decorators/public.decorator';
 import { AuthService } from './auth.service';
-import type { LoginDto } from './dto/login.dto';
+import { LoginDto } from './dto/login.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -32,13 +33,21 @@ export class AuthController {
     return { user };
   }
 
+  @Public()
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
-  logout(@Req() req: Request & { session: { destroy: (cb: (err: unknown) => void) => void } }): Promise<void> {
+  logout(
+    @Req() req: Request & { session: { destroy: (cb: (err: unknown) => void) => void } },
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       req.session.destroy((err) => {
-        if (err) reject(err);
-        else resolve();
+        if (err) {
+          reject(err);
+        } else {
+          res.clearCookie('connect.sid', { path: '/' });
+          resolve();
+        }
       });
     });
   }

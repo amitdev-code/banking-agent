@@ -48,3 +48,7 @@ pnpm-debug.log*
 # Phased push script (local dev tool, not for repo)
 push-phases.sh
 .push_phase_state
+
+# local dev script
+dev.sh
+.dev-logs/

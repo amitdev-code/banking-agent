@@ -1,4 +1,5 @@
-import type { Customer, ScoredCustomer, TransactionSummary, ReadinessLabel } from '@banking-crm/types';
+import type { Customer, ReadinessLabel, ScoredCustomer, TransactionSummary } from '@banking-crm/types';
+import { defaultScoringConfig, type ScoringRulesConfig } from '@banking-crm/types';
 
 import { activityScore } from './rules/activity.rule';
 import { ageScore } from './rules/age.rule';
@@ -10,32 +11,32 @@ import { salaryScore } from './rules/salary.rule';
 import { spendingScore } from './rules/spending.rule';
 import { sigmoidProbability } from './sigmoid';
 
-const QUALIFY_THRESHOLD = 75;
-
-function resolveReadinessLabel(score: number): ReadinessLabel {
-  if (score >= 88) return 'Primed';
-  if (score >= 75) return 'Engaged';
-  if (score >= 55) return 'Dormant';
+export function resolveReadinessLabel(
+  score: number,
+  labels: ScoringRulesConfig['readinessLabels'],
+): ReadinessLabel {
+  if (score >= labels.primed) return 'Primed';
+  if (score >= labels.engaged) return 'Engaged';
+  if (score >= labels.dormant) return 'Dormant';
   return 'At-Risk';
 }
 
-function hasRegularIncome(summary: TransactionSummary): boolean {
-  const monthsWithSalary = summary.monthlySalaryCredits.filter((v) => v > 0).length;
-  return monthsWithSalary >= 3;
+function hasRegularIncome(summary: TransactionSummary, minMonths: number): boolean {
+  return summary.monthlySalaryCredits.filter((v) => v > 0).length >= minMonths;
 }
 
 export function scoreCustomer(
   customer: Customer,
   summary: TransactionSummary,
+  config: ScoringRulesConfig = defaultScoringConfig,
 ): ScoredCustomer {
-  // Hard exclusion: no regular income in last 12 months
-  if (!hasRegularIncome(summary)) {
+  if (!hasRegularIncome(summary, config.regularIncomeMinMonths)) {
     return {
       customerId: customer.id,
       totalScore: 0,
       breakdown: { salary: 0, balance: 0, spending: 0, salaryCredited: 0, products: 0, age: 0, activity: 0 },
       readinessLabel: 'At-Risk',
-      conversionProbability: sigmoidProbability(0),
+      conversionProbability: sigmoidProbability(0, config.sigmoid.midpoint, config.sigmoid.steepness),
       recommendedProducts: [],
       hasExistingLoan: summary.hasActiveLoan,
       loanPenalty: 0,
@@ -45,29 +46,28 @@ export function scoreCustomer(
   }
 
   const breakdown = {
-    salary: salaryScore(summary),
-    balance: balanceScore(summary),
-    spending: spendingScore(summary),
-    salaryCredited: salaryCreditedScore(summary),
-    products: productsScore(summary),
-    age: ageScore(customer),
-    activity: activityScore(summary),
+    salary:         salaryScore(summary, config.salary.brackets),
+    balance:        balanceScore(summary, config.balance.brackets),
+    spending:       spendingScore(summary, config.spending.maxScore),
+    salaryCredited: salaryCreditedScore(summary, config.salaryCredited.brackets),
+    products:       productsScore(summary, config.products.maxScore),
+    age:            ageScore(customer, config.age.brackets),
+    activity:       activityScore(summary, config.activity.brackets),
   };
 
   const baseScore = Object.values(breakdown).reduce((sum, v) => sum + v, 0);
-
-  const { penalty, hasExistingLoan, loanType } = loanPenalty(summary);
+  const { penalty, hasExistingLoan } = loanPenalty(summary, config.loanPenalty);
   const totalScore = Math.max(0, baseScore - penalty);
 
   return {
     customerId: customer.id,
     totalScore,
     breakdown,
-    readinessLabel: resolveReadinessLabel(totalScore),
-    conversionProbability: sigmoidProbability(totalScore),
+    readinessLabel: resolveReadinessLabel(totalScore, config.readinessLabels),
+    conversionProbability: sigmoidProbability(totalScore, config.sigmoid.midpoint, config.sigmoid.steepness),
     recommendedProducts: [],
     hasExistingLoan,
     loanPenalty: penalty,
-    qualifies: totalScore >= QUALIFY_THRESHOLD,
+    qualifies: totalScore >= config.qualifyThreshold,
   };
 }

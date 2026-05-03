@@ -1,6 +1,7 @@
 import type { AgentMode, RunStatus } from './crm.types';
 import type { Customer, CustomerFilters } from './customer.types';
-import type { ProductRecommendation, ScoredCustomer } from './scoring.types';
+import type { CustomerPersonaResult, ProductRecommendation, ScoredCustomer } from './scoring.types';
+import type { ScoringRulesConfig } from './scoring-config.types';
 import type { TransactionSummary } from './transaction.types';
 
 export interface GeneratedMessage {
@@ -20,8 +21,10 @@ export interface CrmAgentState {
   customers: Customer[];
   transactionSummaries: TransactionSummary[];
   scoredCustomers: ScoredCustomer[];
+  customerPersonas: CustomerPersonaResult[];
   recommendations: ProductRecommendation[];
   generatedMessages: GeneratedMessage[];
+  scoringConfig: ScoringRulesConfig;
   error?: string;
   isPaused: boolean;
   plannerNote?: string;

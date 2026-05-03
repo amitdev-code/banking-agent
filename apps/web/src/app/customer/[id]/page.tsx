@@ -5,12 +5,21 @@ import Link from 'next/link';
 import { PiiGrid, ScoreBadge, ScoreBreakdownChart } from '@banking-crm/ui';
 
 import type { Customer, ScoredCustomer } from '@banking-crm/types';
+import { SpendingCategoryChart } from '@/components/customers/spending-category-chart';
+
+interface SpendingCategory {
+  category: string;
+  type: string;
+  total: number;
+  count: number;
+}
 
 type CustomerDetail = Customer & {
   latestScore?: ScoredCustomer & {
     messageEn?: string;
     messageHi?: string;
   };
+  spendingCategories?: SpendingCategory[];
 };
 
 async function fetchCustomer(id: string): Promise<CustomerDetail | null | 'forbidden'> {
@@ -107,6 +116,13 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
                 </span>
               </div>
               <ScoreBreakdownChart breakdown={customer.latestScore.breakdown} />
+            </div>
+          )}
+
+          {customer.spendingCategories && customer.spendingCategories.length > 0 && (
+            <div className="rounded-lg border p-4">
+              <h3 className="text-sm font-semibold mb-3">Spending Categories</h3>
+              <SpendingCategoryChart spendingCategories={customer.spendingCategories} />
             </div>
           )}
         </div>

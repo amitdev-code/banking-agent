@@ -46,6 +46,10 @@ export interface ScoredResultRecord {
   hasExistingLoan: boolean;
   loanPenalty: number;
   disqualifiedReason: string | null;
+  scoreExplanation: string | null;
+  persona: string | null;
+  llmAdjustment: number | null;
+  llmAdjustReason: string | null;
   createdAt: Date;
 }
 
