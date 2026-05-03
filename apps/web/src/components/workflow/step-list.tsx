@@ -21,6 +21,7 @@ export function StepList({ steps }: StepListProps) {
             step={step as WorkflowStepName}
             status={state?.status ?? 'pending'}
             detail={state?.detail}
+            progress={state?.progress}
             isLast={idx === WORKFLOW_STEP_ORDER.length - 1}
           />
         );

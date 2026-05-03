@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-import type { StepStatus, WorkflowCompleteEvent, WorkflowErrorEvent, WorkflowStepEvent, WorkflowStepName } from '@banking-crm/types';
+import type { StepStatus, WorkflowCompleteEvent, WorkflowErrorEvent, WorkflowStepEvent, WorkflowStepName, WorkflowStepProgress } from '@banking-crm/types';
 import { WORKFLOW_STEP_ORDER } from '@banking-crm/types';
 
 import { getSocket } from '@/lib/socket-client';
@@ -10,6 +10,7 @@ import { getSocket } from '@/lib/socket-client';
 export interface WorkflowStepState {
   status: StepStatus;
   detail?: string;
+  progress?: WorkflowStepProgress;
 }
 
 export type StepMap = Map<WorkflowStepName, WorkflowStepState>;
@@ -50,7 +51,7 @@ export function useWorkflowSteps(runId: string | null): UseWorkflowStepsResult {
     socket.on('step:update', (event: WorkflowStepEvent) => {
       setSteps((prev) => {
         const next = new Map(prev);
-        next.set(event.step, { status: event.status, detail: event.detail });
+        next.set(event.step, { status: event.status, detail: event.detail, progress: event.progress });
         return next;
       });
     });

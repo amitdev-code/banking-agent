@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { buildCrmGraph, createCheckpointer } from '@banking-crm/ai';
 import type { CompiledCrmGraph } from '@banking-crm/ai';
-import type { WorkflowStepName } from '@banking-crm/types';
+import { defaultScoringConfig, type WorkflowStepName } from '@banking-crm/types';
 
 import { PrismaService } from '../../database/prisma.service';
 import { CrmGateway } from '../crm/crm.gateway';
@@ -30,12 +30,16 @@ export class AiService implements OnModuleInit {
       prisma: this.prisma as Parameters<typeof buildCrmGraph>[0]['prisma'],
       openaiApiKey: openaiKey,
       checkpointer,
-      emitStep: (runId, step, status, detail) => {
+      emitStep: (runId, step, status, detail, progress) => {
+        const progressStr = progress ? ` [${progress.current}/${progress.total}]` : '';
+        const detailStr = detail ? ` — ${detail}` : '';
+        this.logger.log(`[run:${runId}] ${step}:${status}${detailStr}${progressStr}`);
         this.gateway.emitStepUpdate(runId, {
           runId,
           step: step as WorkflowStepName,
           status: status as 'running' | 'done' | 'error',
           detail,
+          progress,
           timestamp: Date.now(),
         });
       },
@@ -52,7 +56,14 @@ export class AiService implements OnModuleInit {
   }
 
   async runWorkflow(runId: string, tenantId: string, dto: RunCrmDto): Promise<void> {
+    this.logger.log(`[run:${runId}] Starting workflow for tenant ${tenantId}, mode=${dto.mode}`);
     const config = { configurable: { thread_id: runId } };
+
+    // Load tenant scoring config — fall back to defaults if none configured
+    const scoringConfigRow = await this.prisma.scoringConfig.findUnique({ where: { tenantId } });
+    const scoringConfig = scoringConfigRow
+      ? (scoringConfigRow.rules as unknown as typeof defaultScoringConfig)
+      : defaultScoringConfig;
 
     try {
       const stream = await this.graph.stream(
@@ -63,6 +74,7 @@ export class AiService implements OnModuleInit {
           naturalLanguageQuery: dto.naturalLanguageQuery,
           resolvedFilters: dto.filters ?? {},
           isPaused: false,
+          scoringConfig,
         },
         config,
       );
@@ -96,6 +108,9 @@ export class AiService implements OnModuleInit {
         },
       });
 
+      this.logger.log(
+        `[run:${runId}] Workflow complete — ${scoredCustomers.length} customers, ${qualified.length} qualified, avgScore=${avgScore.toFixed(1)}`,
+      );
       this.gateway.emitRunComplete(runId, {
         runId,
         customerCount: scoredCustomers.length,
@@ -152,6 +167,10 @@ export class AiService implements OnModuleInit {
       hasExistingLoan: boolean;
       loanPenalty: number;
       disqualifiedReason?: string;
+      scoreExplanation?: string;
+      persona?: string;
+      llmAdjustment?: number;
+      llmAdjustReason?: string;
     }) => {
       const msg = messageMap.get(s.customerId) as { english?: string; hindi?: string } | undefined;
       return {
@@ -169,6 +188,10 @@ export class AiService implements OnModuleInit {
         hasExistingLoan: s.hasExistingLoan,
         loanPenalty: s.loanPenalty,
         disqualifiedReason: s.disqualifiedReason ?? null,
+        scoreExplanation: s.scoreExplanation ?? null,
+        persona: s.persona ?? null,
+        llmAdjustment: s.llmAdjustment ?? null,
+        llmAdjustReason: s.llmAdjustReason ?? null,
       };
     });
 
