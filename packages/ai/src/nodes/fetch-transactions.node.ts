@@ -6,14 +6,14 @@ import type { CrmState } from '../graph/state';
 
 interface FetchTransactionsDeps {
   prisma: PrismaClient;
-  emitStep: (runId: string, step: string, status: string) => void;
+  emitStep: (runId: string, step: string, status: string, detail?: string, progress?: { current: number; total: number }) => void;
 }
 
 export function createFetchTransactionsNode(deps: FetchTransactionsDeps) {
   return async function fetchTransactionsNode(
     state: CrmState,
   ): Promise<Partial<CrmState>> {
-    deps.emitStep(state.runId, 'fetchTransactions', 'running');
+    deps.emitStep(state.runId, 'fetchTransactions', 'running', `Querying transactions for ${state.customers.length} customers`);
 
     const customerIds = state.customers.map((c) => c.id);
     if (customerIds.length === 0) {
@@ -88,8 +88,13 @@ export function createFetchTransactionsNode(deps: FetchTransactionsDeps) {
     );
 
     // Ensure every customer has a summary (even if no transactions)
-    const transactionSummaries: TransactionSummary[] = state.customers.map((c) => {
-      return (
+    const total = state.customers.length;
+    const transactionSummaries: TransactionSummary[] = [];
+    const BATCH = 100;
+
+    for (let i = 0; i < state.customers.length; i++) {
+      const c = state.customers[i]!;
+      transactionSummaries.push(
         summaryMap.get(c.id) ?? {
           customerId: c.id,
           categoryTotals: [],
@@ -101,11 +106,15 @@ export function createFetchTransactionsNode(deps: FetchTransactionsDeps) {
           hasRegularIncome: false,
           hasActiveLoan: c.hasActiveLoan,
           loanType: c.loanType,
-        }
+        },
       );
-    });
+      if ((i + 1) % BATCH === 0 && i + 1 < total) {
+        deps.emitStep(state.runId, 'fetchTransactions', 'running', `Building summary ${i + 1} of ${total}`, { current: i + 1, total });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    }
 
-    deps.emitStep(state.runId, 'fetchTransactions', 'done');
+    deps.emitStep(state.runId, 'fetchTransactions', 'done', `${transactionSummaries.length} transaction summaries built`, { current: transactionSummaries.length, total: transactionSummaries.length });
     return { transactionSummaries };
   };
 }

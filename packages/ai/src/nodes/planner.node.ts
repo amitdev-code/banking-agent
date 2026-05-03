@@ -18,7 +18,7 @@ const filterSchema = z.object({
 
 interface PlannerDeps {
   openaiApiKey: string;
-  emitStep: (runId: string, step: string, status: string) => void;
+  emitStep: (runId: string, step: string, status: string, detail?: string, progress?: { current: number; total: number }) => void;
 }
 
 export function createPlannerNode(deps: PlannerDeps) {

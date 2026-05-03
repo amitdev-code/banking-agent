@@ -9,7 +9,7 @@ import type { CrmState } from '../graph/state';
 
 interface MessageDeps {
   openaiApiKey: string;
-  emitStep: (runId: string, step: string, status: string, detail?: string) => void;
+  emitStep: (runId: string, step: string, status: string, detail?: string, progress?: { current: number; total: number }) => void;
   isPaused: (runId: string) => Promise<boolean>;
 }
 
@@ -18,9 +18,18 @@ const messageSchema = z.object({
   hindi: z.string(),
 });
 
+const PERSONA_TONE: Record<string, string> = {
+  Saver:           'conservative and value-focused — highlight low EMI, long-term wealth building',
+  Spender:         'aspirational — highlight lifestyle benefits, rewards, and flexibility',
+  Investor:        'analytical — highlight ROI, leverage, and portfolio diversification angle',
+  IrregularIncome: 'flexible and empathetic — acknowledge variable income, highlight adaptable repayment',
+  Balanced:        'professional and straightforward — highlight reliability and convenience',
+};
+
 function buildCustomerContext(
   scored: ScoredCustomer,
   summary: TransactionSummary,
+  persona?: string,
 ): string {
   const avgSalary =
     summary.monthlySalaryCredits.filter((v) => v > 0).reduce((a, b) => a + b, 0) /
@@ -33,6 +42,8 @@ function buildCustomerContext(
     .map((c) => `${c.category}: ₹${Math.round(c.total / 12).toLocaleString('en-IN')}/month`)
     .join(', ');
 
+  const toneHint = persona ? PERSONA_TONE[persona] : undefined;
+
   return [
     `Score: ${scored.totalScore}/100 (${scored.readinessLabel})`,
     `Conversion probability: ${Math.round(scored.conversionProbability * 100)}%`,
@@ -40,7 +51,9 @@ function buildCustomerContext(
     `Average balance: ₹${Math.round(summary.avgMonthlyBalance).toLocaleString('en-IN')}`,
     `Top spending: ${topCategories || 'N/A'}`,
     `Recommended products: ${scored.recommendedProducts.map((r) => r.product).join(', ')}`,
-  ].join('\n');
+    persona ? `Behavior persona: ${persona}` : null,
+    toneHint ? `Tone guidance: ${toneHint}` : null,
+  ].filter(Boolean).join('\n');
 }
 
 export function createMessageNode(deps: MessageDeps) {
@@ -70,16 +83,21 @@ export function createMessageNode(deps: MessageDeps) {
 
     const modelWithOutput = model.withStructuredOutput(messageSchema);
     const summaryMap = new Map(state.transactionSummaries.map((s) => [s.customerId, s]));
+    const personaMap = new Map(state.customerPersonas.map((p) => [p.customerId, p.persona]));
 
     const messages: GeneratedMessage[] = [];
+    const total = qualifiedCustomers.length;
 
     for (const scored of qualifiedCustomers) {
       const summary = summaryMap.get(scored.customerId);
       if (!summary) continue;
 
+      deps.emitStep(state.runId, 'message', 'running', `Generating message ${messages.length + 1}/${total}`);
+
       const products = scored.recommendedProducts.map((r) => r.product as ProductType);
       const ragContext = buildRagContext(products.length > 0 ? products : ['PERSONAL_LOAN']);
-      const customerContext = buildCustomerContext(scored, summary);
+      const persona = scored.persona ?? personaMap.get(scored.customerId);
+      const customerContext = buildCustomerContext(scored, summary, persona);
 
       const result = await modelWithOutput.invoke([
         {

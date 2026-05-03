@@ -5,7 +5,7 @@ import type { CrmState } from '../graph/state';
 
 interface FetchCustomersDeps {
   prisma: PrismaClient;
-  emitStep: (runId: string, step: string, status: string) => void;
+  emitStep: (runId: string, step: string, status: string, detail?: string, progress?: { current: number; total: number }) => void;
 }
 
 export function createFetchCustomersNode(deps: FetchCustomersDeps) {
@@ -16,35 +16,47 @@ export function createFetchCustomersNode(deps: FetchCustomersDeps) {
 
     const { filters } = buildWhere(state.tenantId, state.resolvedFilters);
 
+    deps.emitStep(state.runId, 'fetchCustomers', 'running', 'Querying database...');
     const rows = await deps.prisma.customer.findMany({
       where: filters,
       orderBy: { createdAt: 'desc' },
     });
 
-    const customers: Customer[] = rows.map((r) => ({
-      id: r.id,
-      tenantId: r.tenantId,
-      age: r.age,
-      city: r.city,
-      segment: r.segment as Customer['segment'],
-      accountType: r.accountType as Customer['accountType'],
-      kycStatus: r.kycStatus as Customer['kycStatus'],
-      joinedAt: r.joinedAt,
-      createdAt: r.createdAt,
-      avgMonthlyBalance: Number(r.avgMonthlyBalance),
-      hasActiveLoan: r.hasActiveLoan,
-      loanType: r.loanType,
-      fullName: r.fullName,
-      phone: r.phone,
-      email: r.email,
-      pan: r.pan,
-      aadhaar: r.aadhaar,
-      address: r.address,
-      dob: r.dob,
-      accountNumber: r.accountNumber,
-    }));
+    const total = rows.length;
+    const customers: Customer[] = [];
+    const BATCH = 100;
 
-    deps.emitStep(state.runId, 'fetchCustomers', 'done');
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]!;
+      customers.push({
+        id: r.id,
+        tenantId: r.tenantId,
+        age: r.age,
+        city: r.city,
+        segment: r.segment as Customer['segment'],
+        accountType: r.accountType as Customer['accountType'],
+        kycStatus: r.kycStatus as Customer['kycStatus'],
+        joinedAt: r.joinedAt,
+        createdAt: r.createdAt,
+        avgMonthlyBalance: Number(r.avgMonthlyBalance),
+        hasActiveLoan: r.hasActiveLoan,
+        loanType: r.loanType,
+        fullName: r.fullName,
+        phone: r.phone,
+        email: r.email,
+        pan: r.pan,
+        aadhaar: r.aadhaar,
+        address: r.address,
+        dob: r.dob,
+        accountNumber: r.accountNumber,
+      });
+      if ((i + 1) % BATCH === 0 && i + 1 < total) {
+        deps.emitStep(state.runId, 'fetchCustomers', 'running', `Loading ${i + 1} of ${total} customers`, { current: i + 1, total });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    }
+
+    deps.emitStep(state.runId, 'fetchCustomers', 'done', `${customers.length} customers loaded`, { current: customers.length, total: customers.length });
     return { customers };
   };
 }

@@ -3,7 +3,7 @@ import type { ProductRecommendation, ProductType, ScoredCustomer, TransactionSum
 import type { CrmState } from '../graph/state';
 
 interface RecommendationDeps {
-  emitStep: (runId: string, step: string, status: string) => void;
+  emitStep: (runId: string, step: string, status: string, detail?: string, progress?: { current: number; total: number }) => void;
 }
 
 function buildRecommendations(
@@ -76,20 +76,31 @@ export function createRecommendationNode(deps: RecommendationDeps) {
   return async function recommendationNode(
     state: CrmState,
   ): Promise<Partial<CrmState>> {
-    deps.emitStep(state.runId, 'recommendation', 'running');
+    const total = state.scoredCustomers.length;
+    const qualifiedTotal = state.scoredCustomers.filter((s) => s.qualifies).length;
+    deps.emitStep(state.runId, 'recommendation', 'running', `Matching products for ${qualifiedTotal} qualified customers`, { current: 0, total });
 
     const summaryMap = new Map(state.transactionSummaries.map((s) => [s.customerId, s]));
 
-    const scoredWithRecs: ScoredCustomer[] = state.scoredCustomers.map((scored) => {
-      const summary = summaryMap.get(scored.customerId);
-      if (!summary || !scored.qualifies) return scored;
-      return {
-        ...scored,
-        recommendedProducts: buildRecommendations(scored, summary),
-      };
-    });
+    const scoredWithRecs: ScoredCustomer[] = [];
+    const BATCH = 50;
 
-    deps.emitStep(state.runId, 'recommendation', 'done');
+    for (let i = 0; i < state.scoredCustomers.length; i++) {
+      const scored = state.scoredCustomers[i]!;
+      const summary = summaryMap.get(scored.customerId);
+      if (!summary || !scored.qualifies) {
+        scoredWithRecs.push(scored);
+      } else {
+        scoredWithRecs.push({ ...scored, recommendedProducts: buildRecommendations(scored, summary) });
+      }
+      if ((i + 1) % BATCH === 0 && i + 1 < total) {
+        deps.emitStep(state.runId, 'recommendation', 'running', `Matched ${i + 1} of ${total} customers`, { current: i + 1, total });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    }
+
+    const withRecs = scoredWithRecs.filter((s) => s.qualifies && s.recommendedProducts.length > 0).length;
+    deps.emitStep(state.runId, 'recommendation', 'done', `${withRecs} customers matched to products`, { current: total, total });
     return { scoredCustomers: scoredWithRecs };
   };
 }
