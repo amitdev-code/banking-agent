@@ -10,46 +10,46 @@ The platform fetches customers via natural-language, analyzes behavior, recommen
 
 ```mermaid
 graph TD
-    subgraph "apps/web (Next.js 15)"
+    subgraph "apps web Next.js 15"
         A[Dashboard Chat Workspace]
-        A1[Left: Session List]
-        A2[Center: Chat + Tool Cards]
-        A3[Right: Fetched Customer Intelligence]
-        B[History — legacy run replay]
-        C[Customer Detail — PII-aware + spending chart]
-        D[Settings — scoring bracket editor]
+        A1[Left Session List]
+        A2[Center Chat and Tool Cards]
+        A3[Right Fetched Customer Intelligence]
+        B[History Legacy Run Replay]
+        C[Customer Detail PII Aware with Spending Chart]
+        D[Settings Scoring Bracket Editor]
     end
 
-    subgraph "apps/api (NestJS)"
+    subgraph "apps api NestJS"
         E[AuthController]
         F[CustomerController]
-        G[CrmController (legacy pipeline)]
-        G1[CrmSessionController (dynamic chat sessions)]
+        G[CrmController Legacy Pipeline]
+        G1[CrmSessionController Dynamic Chat Sessions]
         H[ScoringConfigController]
-        I[CrmGateway (/crm)]
-        I1[CrmSessionGateway (/crm-session)]
+        I[CrmGateway CRM Namespace]
+        I1[CrmSessionGateway CRM Session Namespace]
         J[PiiMaskingInterceptor]
-        K[SessionGuard + RolesGuard]
+        K[SessionGuard and RolesGuard]
     end
 
-    subgraph "packages/ai"
+    subgraph "packages ai"
         L[Dynamic Agent Graph]
-        M[Agent ↔ Tools loop]
+        M[Agent Tools Loop]
         M1[fetch_customers]
         M2[fetch_transactions]
         M3[analyze_customers]
         M4[analyze_spending]
         M5[recommend_products]
         M6[generate_messages]
-        N[Scoring Engine + LLM hybrid adjustment]
+        N[Scoring Engine and LLM Hybrid Adjustment]
         O[RAG product templates]
-        P[Legacy staged graph (crm.graph.ts)]
+        P[Legacy Staged Graph crm graph ts]
     end
 
-    subgraph "packages/database"
+    subgraph "packages database"
         Q[Prisma Schema]
-        R[ScoringConfig table]
-        S[Session + Message + ScoredResult tables]
+        R[ScoringConfig Table]
+        S[Session Message and ScoredResult Tables]
     end
 
     subgraph "Infrastructure"
@@ -60,11 +60,11 @@ graph TD
     A --> A1
     A --> A2
     A --> A3
-    A -->|HTTP + WS| G1
-    A -->|HTTP + WS| E
-    B -->|HTTP + WS| G
-    G1 -->|processMessage/approve| L
-    I1 -->|tool:* + message:complete events| A2
+    A -->|HTTP and WS| G1
+    A -->|HTTP and WS| E
+    B -->|HTTP and WS| G
+    G1 -->|processMessage and approve| L
+    I1 -->|tool events and message complete| A2
     L --> M
     M --> M1
     M --> M2
@@ -74,7 +74,7 @@ graph TD
     M --> M6
     L --> N
     L --> O
-    L -->|persist session messages/results| Q
+    L -->|persist session messages and results| Q
     Q --> T
     H --> R
     N --> R
