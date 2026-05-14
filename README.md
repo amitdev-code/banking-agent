@@ -1,14 +1,21 @@
 # Banking Agent CRM
 
-AI-powered multi-tenant Banking CRM for personal loan conversion. Identifies high-value customers, scores them deterministically, recommends products, and generates bilingual WhatsApp messages via RAG + LLM.
+AI-powered multi-tenant Banking CRM for relationship managers. It supports both:
+- a **dynamic chat agent session flow** (primary) powered by LangGraph tool-calling, and
+- a **legacy staged run pipeline** for historical run/replay workflows.
+
+The platform fetches customers via natural-language, analyzes behavior, recommends products with rationale, and generates bilingual WhatsApp outreach.
 
 ## Architecture
 
 ```mermaid
 graph TD
     subgraph "apps/web (Next.js 15)"
-        A[Dashboard — 3-panel layout]
-        B[History — run replay]
+        A[Dashboard Chat Workspace]
+        A1[Left: Session List]
+        A2[Center: Chat + Tool Cards]
+        A3[Right: Fetched Customer Intelligence]
+        B[History — legacy run replay]
         C[Customer Detail — PII-aware + spending chart]
         D[Settings — scoring bracket editor]
     end
@@ -16,43 +23,63 @@ graph TD
     subgraph "apps/api (NestJS)"
         E[AuthController]
         F[CustomerController]
-        G[CrmController]
+        G[CrmController (legacy pipeline)]
+        G1[CrmSessionController (dynamic chat sessions)]
         H[ScoringConfigController]
-        I[CrmGateway — Socket.io]
+        I[CrmGateway (/crm)]
+        I1[CrmSessionGateway (/crm-session)]
         J[PiiMaskingInterceptor]
         K[SessionGuard + RolesGuard]
     end
 
     subgraph "packages/ai"
-        L[LangGraph Workflow — 9 nodes]
-        M[planner → fetchCustomers → fetchTransactions → scoring → llmScoreAdjust → scoreExplainer → behaviorPersona → recommendation → message]
-        N[ScoringEngine — deterministic + configurable brackets]
-        O[RAG — product templates]
+        L[Dynamic Agent Graph]
+        M[Agent ↔ Tools loop]
+        M1[fetch_customers]
+        M2[fetch_transactions]
+        M3[analyze_customers]
+        M4[analyze_spending]
+        M5[recommend_products]
+        M6[generate_messages]
+        N[Scoring Engine + LLM hybrid adjustment]
+        O[RAG product templates]
+        P[Legacy staged graph (crm.graph.ts)]
     end
 
     subgraph "packages/database"
-        P[Prisma Schema]
-        Q[ScoringConfig table — per-tenant brackets]
-        R[Seed — 1000 customers × 22 scenarios]
+        Q[Prisma Schema]
+        R[ScoringConfig table]
+        S[Session + Message + ScoredResult tables]
     end
 
     subgraph "Infrastructure"
-        S[(PostgreSQL 16)]
-        T[(Redis 7)]
+        T[(PostgreSQL 16)]
+        U[(Redis 7)]
     end
 
+    A --> A1
+    A --> A2
+    A --> A3
+    A -->|HTTP + WS| G1
     A -->|HTTP + WS| E
-    A -->|HTTP + WS| G
-    G -->|fire-and-forget| L
-    I -->|WebSocket step:update + progress| A
+    B -->|HTTP + WS| G
+    G1 -->|processMessage/approve| L
+    I1 -->|tool:* + message:complete events| A2
+    L --> M
+    M --> M1
+    M --> M2
+    M --> M3
+    M --> M4
+    M --> M5
+    M --> M6
     L --> N
     L --> O
-    L -->|persist results| P
-    P --> S
+    L -->|persist session messages/results| Q
+    Q --> T
+    H --> R
+    N --> R
     J --> F
     K --> E
-    H -->|read/write brackets| Q
-    N -->|reads brackets| Q
 ```
 
 ## Monorepo Structure
@@ -62,21 +89,23 @@ banking-agent-crm/
 ├── apps/
 │   ├── web/                    # Next.js 15 App Router
 │   │   ├── src/app/
-│   │   │   ├── dashboard/      # 3-panel AI run UI
+│   │   │   ├── dashboard/      # Session chat UI (left/center/right panels)
 │   │   │   ├── history/[id]/   # Run replay with dark hero header
 │   │   │   ├── customer/[id]/  # Customer profile + spending chart
 │   │   │   └── settings/       # Scoring bracket editor
 │   │   └── src/components/
+│   │       ├── chat/           # Chat window, tool cards, session sidebar, right insight sidebar
 │   │       ├── customers/      # CustomerCard, SpendingCategoryChart
 │   │       ├── history/        # CompactCustomerRow, RunDetailView
 │   │       ├── settings/       # BracketEditor, NlTunePanel
-│   │       └── workflow/       # StepList with live progress bars
+│   │       └── workflow/       # Legacy pipeline StepList with live progress bars
 │   └── api/                    # NestJS
 │       └── src/modules/
 │           ├── auth/           # Login/logout/me — ADMIN PII override
 │           ├── customer/       # Paginated list + spending categories
-│           ├── crm/            # Pipeline trigger, history, run detail
-│           ├── ai/             # LangGraph orchestrator + logging
+│           ├── crm/            # Legacy staged pipeline (run/history/replay)
+│           ├── crm-session/    # Dynamic chat sessions + WebSocket events
+│           ├── ai/             # Dynamic LangGraph agent service + legacy orchestrator
 │           └── scoring-config/ # Tenant-scoped bracket CRUD
 ├── packages/
 │   ├── config/       # Shared ESLint, TS, Prettier configs
@@ -156,18 +185,22 @@ Every entity is scoped by `tenantId`. The `X-Tenant-Slug` header resolves tenant
 - Email: `j***@***.***`
 - PAN, Aadhaar, Address, DOB, Account Number
 
-### AI Workflow (LangGraph)
+### AI Architecture (LangGraph)
 
 ```
-START → planner → fetchCustomers → fetchTransactions → scoring
-      → llmScoreAdjust → scoreExplainer → behaviorPersona
-      → recommendation → message → END
+Dynamic Session Agent (primary):
+START → agent (LLM tool router) ↔ tools loop → END
+
+Tools:
+fetch_customers → fetch_transactions → analyze_customers
+→ analyze_spending → explain_scores → recommend_products → generate_messages
 ```
 
-- **Agent Mode**: Processes all customers with default filters
-- **Custom Mode**: Natural language query → OpenAI function calling → `CustomerFilters`
-- **Pause/Resume**: `interrupt()` checkpoint in `message` node
-- **Real-time**: WebSocket emits `step:update` events with `progress: { current, total }` counters so the UI shows live per-batch progress bars during fetch, scoring, and recommendation phases
+- **Session memory**: fetched customers, scoring results, spending insights, and generated messages are persisted in graph state per session thread.
+- **Schema-aware querying**: `fetch_customers` builds SQL from natural language using full DB schema context and retry/repair on SQL errors.
+- **Real-time chat events**: WebSocket emits `tool:start`, `tool:done`, `tool:error`, and `message:complete` events.
+- **Direct WhatsApp generation**: messages are generated immediately when requested (no mandatory approval gate).
+- **Legacy flow retained**: the staged `crm` graph still powers historical run/replay paths.
 
 ### Scoring Engine
 
@@ -193,7 +226,19 @@ Brackets are configurable per-tenant via the Settings page and persisted in the 
 
 The customer detail page shows a donut chart breaking down the last 12 months of debit transactions by category (Grocery, Shopping, Dining, Entertainment, Travel, Fuel, Utilities, Medical, EMI, Other). Powered by a `transaction.groupBy` query in `customer.repository.ts`, displayed via `SpendingCategoryChart` with a savings rate indicator.
 
-### History Run Replay
+### Session Chat Workspace (Dashboard)
+
+`/dashboard` is now a session-first assistant workspace:
+- **Left panel**: session list and archive actions
+- **Center panel**: conversational assistant + tool result cards
+- **Right panel**: fetched customer intelligence with per-customer:
+  - allocated products
+  - recommendation rationale + confidence
+  - spending analytics (LLM-generated insights)
+  - generated WhatsApp content
+  - action buttons (generate/view WhatsApp, view analytics if available)
+
+### History Run Replay (Legacy)
 
 `/history/[id]` features a dark gradient hero header with run stats, and a filterable/sortable customer list using `CompactCustomerRow` — a collapsible row with an SVG score ring, product pills, persona badge, and expandable breakdown + WhatsApp message panel.
 
@@ -221,7 +266,7 @@ pnpm db:seed          # Seed 1000 customers
 |---|---|
 | Frontend | Next.js 15, React 19, TailwindCSS, shadcn/ui, Recharts |
 | Backend | NestJS, express-session, Socket.io |
-| AI/ML | LangGraph, LangChain, OpenAI GPT-4o-mini |
+| AI/ML | LangGraph, LangChain, OpenAI GPT-4o / GPT-4o-mini |
 | Database | PostgreSQL 16, Prisma 5 |
 | Cache / Rate Limit | Redis 7, @nestjs/throttler |
 | Build | Turborepo, pnpm workspaces |
