@@ -229,7 +229,7 @@ pnpm db:seed          # Seed 1000 customers
 | CI | Husky + lint-staged + commitlint |
 
 ## Video demo
-https://kommodo.ai/recordings/ZQQh5aeQcKiUMIXiezcn?onlyRecording=1
+https://kommodo.ai/recordings/FMy7db029eMZmmB8aGyX
 
 ## Server Logs SS
 <img width="1608" height="988" alt="Screenshot 2026-05-03 at 2 25 16 PM" src="https://github.com/user-attachments/assets/82df83b1-19e0-4fe9-b1c9-6738d8fe73be" />
