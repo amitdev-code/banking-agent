@@ -18,6 +18,7 @@ model Tenant {
   users         User[]
   customers     Customer[]
   analysisRuns  AnalysisRun[]
+  crmSessions   CrmSession[]
   scoringConfig ScoringConfig?
 
   @@map("tenants")
@@ -39,6 +40,7 @@ model User {
 
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   analysisRuns AnalysisRun[]
+  crmSessions  CrmSession[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -176,11 +178,62 @@ enum RunStatus {
   COMPLETED
   FAILED
   PAUSED
+  AWAITING_SELECTION
+  AWAITING_APPROVAL
+}
+
+model CrmSession {
+  id       String        @id @default(cuid())
+  tenantId String
+  userId   String
+  title    String?
+  status   SessionStatus @default(ACTIVE)
+  threadId String        @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id])
+  messages      CrmMessage[]
+  scoredResults ScoredResult[]
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@map("crm_sessions")
+}
+
+model CrmMessage {
+  id        String      @id @default(cuid())
+  sessionId String
+  role      MessageRole
+  content   String      @db.Text
+  toolCalls Json?
+  resultType String?
+  resultData Json?
+  createdAt DateTime    @default(now())
+
+  session CrmSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([sessionId, createdAt])
+  @@map("crm_messages")
+}
+
+enum SessionStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
 }
 
 model ScoredResult {
-  id         String @id @default(cuid())
-  runId      String
+  id         String  @id @default(cuid())
+  runId      String?
+  sessionId  String?
   customerId String
   tenantId   String
 
@@ -214,13 +267,16 @@ model ScoredResult {
 
   createdAt DateTime @default(now())
 
-  run      AnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  customer Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  run      AnalysisRun? @relation(fields: [runId], references: [id], onDelete: Cascade)
+  session  CrmSession?  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  customer Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  @@unique([runId, customerId])
   @@index([runId])
+  @@index([sessionId])
   @@index([runId, totalScore])
   @@index([runId, qualifies])
+  @@index([sessionId, totalScore])
+  @@index([sessionId, qualifies])
   @@map("scored_results")
 }
 

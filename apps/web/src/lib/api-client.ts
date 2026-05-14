@@ -9,10 +9,7 @@ function getTenantSlug(): string {
   return process.env['NEXT_PUBLIC_TENANT_SLUG'] ?? '';
 }
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${BASE_URL}${path}`, {
     ...options,
     credentials: 'include',
@@ -25,7 +22,12 @@ async function request<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: response.statusText }));
-    throw new ApiError(response.status, error.message ?? 'Request failed');
+    const raw = error.message;
+    const msg =
+      typeof raw === 'object' && raw !== null
+        ? (raw.message ?? response.statusText)
+        : (raw ?? 'Request failed');
+    throw new ApiError(response.status, msg);
   }
 
   if (response.status === 204) return undefined as T;
@@ -43,8 +45,7 @@ export class ApiError extends Error {
 }
 
 export const apiClient = {
-  get: <T>(path: string, init?: RequestInit) =>
-    request<T>(path, { method: 'GET', ...init }),
+  get: <T>(path: string, init?: RequestInit) => request<T>(path, { method: 'GET', ...init }),
 
   post: <T>(path: string, body?: unknown, init?: RequestInit) =>
     request<T>(path, {
@@ -66,4 +67,6 @@ export const apiClient = {
       body: body !== undefined ? JSON.stringify(body) : undefined,
       ...init,
     }),
+
+  delete: <T>(path: string, init?: RequestInit) => request<T>(path, { method: 'DELETE', ...init }),
 };

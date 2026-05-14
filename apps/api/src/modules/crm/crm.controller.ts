@@ -17,6 +17,7 @@ import type { SessionUser } from '@banking-crm/types';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CrmService } from './crm.service';
+import { ConfirmCustomersDto } from './dto/confirm-customers.dto';
 import { RunCrmDto } from './dto/run-crm.dto';
 import { UpdateMessageDto } from './dto/update-message.dto';
 
@@ -41,44 +42,50 @@ export class CrmController {
 
   @Post('run')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  run(
-    @CurrentUser() user: SessionUser,
-    @Body() dto: RunCrmDto,
-  ): Promise<{ runId: string }> {
+  run(@CurrentUser() user: SessionUser, @Body() dto: RunCrmDto): Promise<{ runId: string }> {
     return this.crmService.run(user, dto);
   }
 
   @Get('history')
-  getHistory(
-    @CurrentUser() user: SessionUser,
-    @Query() query: HistoryQueryDto,
-  ) {
+  getHistory(@CurrentUser() user: SessionUser, @Query() query: HistoryQueryDto) {
     return this.crmService.getHistory(user.tenantId, query.page ?? 1, query.limit ?? 20);
   }
 
   @Get('history/:id')
-  getRunDetail(
+  getRunDetail(@CurrentUser() user: SessionUser, @Param('id') id: string) {
+    return this.crmService.getRunDetail(user.tenantId, id);
+  }
+
+  @Get('run/:id/customers')
+  getRunCustomers(@CurrentUser() user: SessionUser, @Param('id') id: string) {
+    return this.crmService.getRunCustomers(user.tenantId, id);
+  }
+
+  @Post('run/:id/confirm-customers')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  confirmCustomers(
     @CurrentUser() user: SessionUser,
     @Param('id') id: string,
-  ) {
-    return this.crmService.getRunDetail(user.tenantId, id);
+    @Body() dto: ConfirmCustomersDto,
+  ): Promise<void> {
+    return this.crmService.confirmCustomers(user.tenantId, id, dto);
+  }
+
+  @Post('run/:id/confirm-messages')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  confirmMessages(@CurrentUser() user: SessionUser, @Param('id') id: string): Promise<void> {
+    return this.crmService.confirmMessages(user.tenantId, id);
   }
 
   @Post('run/:id/pause')
   @HttpCode(HttpStatus.NO_CONTENT)
-  pause(
-    @CurrentUser() user: SessionUser,
-    @Param('id') id: string,
-  ): Promise<void> {
+  pause(@CurrentUser() user: SessionUser, @Param('id') id: string): Promise<void> {
     return this.crmService.pauseRun(user.tenantId, id);
   }
 
   @Post('run/:id/resume')
   @HttpCode(HttpStatus.NO_CONTENT)
-  resume(
-    @CurrentUser() user: SessionUser,
-    @Param('id') id: string,
-  ): Promise<void> {
+  resume(@CurrentUser() user: SessionUser, @Param('id') id: string): Promise<void> {
     return this.crmService.resumeRun(user.tenantId, id, user);
   }
 

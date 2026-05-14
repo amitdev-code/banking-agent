@@ -5,13 +5,17 @@ import type { CrmState } from '../graph/state';
 
 interface FetchCustomersDeps {
   prisma: PrismaClient;
-  emitStep: (runId: string, step: string, status: string, detail?: string, progress?: { current: number; total: number }) => void;
+  emitStep: (
+    runId: string,
+    step: string,
+    status: string,
+    detail?: string,
+    progress?: { current: number; total: number },
+  ) => void;
 }
 
 export function createFetchCustomersNode(deps: FetchCustomersDeps) {
-  return async function fetchCustomersNode(
-    state: CrmState,
-  ): Promise<Partial<CrmState>> {
+  return async function fetchCustomersNode(state: CrmState): Promise<Partial<CrmState>> {
     deps.emitStep(state.runId, 'fetchCustomers', 'running');
 
     const { filters } = buildWhere(state.tenantId, state.resolvedFilters);
@@ -51,12 +55,21 @@ export function createFetchCustomersNode(deps: FetchCustomersDeps) {
         accountNumber: r.accountNumber,
       });
       if ((i + 1) % BATCH === 0 && i + 1 < total) {
-        deps.emitStep(state.runId, 'fetchCustomers', 'running', `Loading ${i + 1} of ${total} customers`, { current: i + 1, total });
+        deps.emitStep(
+          state.runId,
+          'fetchCustomers',
+          'running',
+          `Loading ${i + 1} of ${total} customers`,
+          { current: i + 1, total },
+        );
         await new Promise<void>((resolve) => setImmediate(resolve));
       }
     }
 
-    deps.emitStep(state.runId, 'fetchCustomers', 'done', `${customers.length} customers loaded`, { current: customers.length, total: customers.length });
+    deps.emitStep(state.runId, 'fetchCustomers', 'done', `${customers.length} customers loaded`, {
+      current: customers.length,
+      total: customers.length,
+    });
     return { customers };
   };
 }
@@ -76,8 +89,13 @@ function buildWhere(tenantId: string, filters: CrmState['resolvedFilters']) {
   if (filters.segments && filters.segments.length > 0) {
     where['segment'] = { in: filters.segments };
   }
-  if (filters.minAvgBalance !== undefined) {
-    where['avgMonthlyBalance'] = { gte: filters.minAvgBalance };
+  // Use the higher of minAvgBalance and minSalary — both map to avgMonthlyBalance in the DB
+  const balanceFloor = Math.max(filters.minAvgBalance ?? 0, filters.minSalary ?? 0);
+  if (balanceFloor > 0) {
+    where['avgMonthlyBalance'] = { gte: balanceFloor };
+  }
+  if (filters.hasExistingLoan !== undefined) {
+    where['hasActiveLoan'] = filters.hasExistingLoan;
   }
 
   return { filters: where };

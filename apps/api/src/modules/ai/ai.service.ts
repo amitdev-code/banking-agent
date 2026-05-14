@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { buildCrmGraph, createCheckpointer } from '@banking-crm/ai';
-import type { CompiledCrmGraph } from '@banking-crm/ai';
+import type { CompiledCrmGraph, CrmState } from '@banking-crm/ai';
 import { defaultScoringConfig, type WorkflowStepName } from '@banking-crm/types';
 
 import { PrismaService } from '../../database/prisma.service';
@@ -23,7 +23,6 @@ export class AiService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     const dbUrl = this.config.getOrThrow<string>('DATABASE_URL');
     const openaiKey = this.config.getOrThrow<string>('OPENAI_API_KEY');
-
     const checkpointer = await createCheckpointer(dbUrl);
 
     this.graph = buildCrmGraph({
@@ -55,11 +54,12 @@ export class AiService implements OnModuleInit {
     this.logger.log('CRM AI graph initialized');
   }
 
-  async runWorkflow(runId: string, tenantId: string, dto: RunCrmDto): Promise<void> {
-    this.logger.log(`[run:${runId}] Starting workflow for tenant ${tenantId}, mode=${dto.mode}`);
+  // ─── Stage 1: planner → fetchCustomers ────────────────────────────────────
+
+  async startFetch(runId: string, tenantId: string, dto: RunCrmDto): Promise<void> {
+    this.logger.log(`[run:${runId}] Stage 1: startFetch, mode=${dto.mode}`);
     const config = { configurable: { thread_id: runId } };
 
-    // Load tenant scoring config — fall back to defaults if none configured
     const scoringConfigRow = await this.prisma.scoringConfig.findUnique({ where: { tenantId } });
     const scoringConfig = scoringConfigRow
       ? (scoringConfigRow.rules as unknown as typeof defaultScoringConfig)
@@ -78,23 +78,107 @@ export class AiService implements OnModuleInit {
         },
         config,
       );
-
       for await (const _chunk of stream) {
-        // Step events emitted via gateway inside each node
+      }
+
+      const state = await this.graph.getState(config);
+      const customers = (state.values as CrmState).customers ?? [];
+
+      await this.prisma.analysisRun.update({
+        where: { id: runId },
+        data: { status: 'AWAITING_SELECTION' as never, customerCount: customers.length },
+      });
+
+      this.gateway.emitAwaitingSelection(runId, { runId, customerCount: customers.length });
+      this.logger.log(
+        `[run:${runId}] Stage 1 done — ${customers.length} customers fetched, awaiting selection`,
+      );
+    } catch (error) {
+      await this.handleError(runId, error);
+    }
+  }
+
+  // ─── Stage 2: fetchTransactions → … → recommendation ─────────────────────
+
+  async continueWithAnalysis(
+    runId: string,
+    tenantId: string,
+    selectedCustomerIds: string[],
+  ): Promise<void> {
+    this.logger.log(
+      `[run:${runId}] Stage 2: continueWithAnalysis, selected=${selectedCustomerIds.length}`,
+    );
+    const config = { configurable: { thread_id: runId } };
+
+    try {
+      // Filter the customers list in graph state to only selected IDs
+      const currentState = await this.graph.getState(config);
+      const allCustomers = (currentState.values as CrmState).customers ?? [];
+      const filteredCustomers = allCustomers.filter((c) => selectedCustomerIds.includes(c.id));
+
+      await this.graph.updateState(config, { customers: filteredCustomers });
+
+      const stream = await this.graph.stream(null, config);
+      for await (const _chunk of stream) {
       }
 
       const finalState = await this.graph.getState(config);
-      const state = finalState.values;
-
+      const state = finalState.values as CrmState;
       const scoredCustomers = state.scoredCustomers ?? [];
-      const qualified = scoredCustomers.filter((s: { qualifies: boolean }) => s.qualifies);
+      const qualified = scoredCustomers.filter((s) => s.qualifies);
       const avgScore =
         qualified.length > 0
-          ? qualified.reduce((sum: number, s: { totalScore: number }) => sum + s.totalScore, 0) / qualified.length
+          ? qualified.reduce((sum, s) => sum + s.totalScore, 0) / qualified.length
           : 0;
 
-      // Persist scored results and messages
-      await this.persistResults(runId, tenantId, state);
+      // Persist scored results (messages are null at this stage)
+      await this.persistScoredResults(runId, tenantId, state);
+
+      await this.prisma.analysisRun.update({
+        where: { id: runId },
+        data: {
+          status: 'AWAITING_APPROVAL' as never,
+          highValueCount: qualified.length,
+          avgScore,
+        },
+      });
+
+      this.gateway.emitAwaitingApproval(runId, {
+        runId,
+        scoredCount: scoredCustomers.length,
+        qualifiedCount: qualified.length,
+        avgScore,
+      });
+      this.logger.log(
+        `[run:${runId}] Stage 2 done — ${scoredCustomers.length} scored, ${qualified.length} qualified, awaiting approval`,
+      );
+    } catch (error) {
+      await this.handleError(runId, error);
+    }
+  }
+
+  // ─── Stage 3: message → END ────────────────────────────────────────────────
+
+  async continueWithMessages(runId: string): Promise<void> {
+    this.logger.log(`[run:${runId}] Stage 3: continueWithMessages`);
+    const config = { configurable: { thread_id: runId } };
+
+    try {
+      const stream = await this.graph.stream(null, config);
+      for await (const _chunk of stream) {
+      }
+
+      const finalState = await this.graph.getState(config);
+      const state = finalState.values as CrmState;
+      const scoredCustomers = state.scoredCustomers ?? [];
+      const qualified = scoredCustomers.filter((s) => s.qualifies);
+      const avgScore =
+        qualified.length > 0
+          ? qualified.reduce((sum, s) => sum + s.totalScore, 0) / qualified.length
+          : 0;
+
+      // Update existing ScoredResult rows with generated messages
+      await this.persistMessages(runId, state);
 
       await this.prisma.analysisRun.update({
         where: { id: runId },
@@ -104,31 +188,33 @@ export class AiService implements OnModuleInit {
           customerCount: scoredCustomers.length,
           highValueCount: qualified.length,
           avgScore,
-          agentOutput: state as unknown as Parameters<typeof this.prisma.analysisRun.update>[0]['data']['agentOutput'],
+          agentOutput: state as unknown as Parameters<
+            typeof this.prisma.analysisRun.update
+          >[0]['data']['agentOutput'],
         },
       });
 
-      this.logger.log(
-        `[run:${runId}] Workflow complete — ${scoredCustomers.length} customers, ${qualified.length} qualified, avgScore=${avgScore.toFixed(1)}`,
-      );
       this.gateway.emitRunComplete(runId, {
         runId,
         customerCount: scoredCustomers.length,
         highValueCount: qualified.length,
         avgScore,
       });
+      this.logger.log(`[run:${runId}] Stage 3 done — workflow complete`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Workflow ${runId} failed: ${message}`);
-
-      await this.prisma.analysisRun.update({
-        where: { id: runId },
-        data: { status: 'FAILED', errorMessage: message, completedAt: new Date() },
-      });
-
-      this.gateway.emitRunError(runId, { runId, error: message });
+      await this.handleError(runId, error);
     }
   }
+
+  // ─── Graph state reader (for customer selection UI) ───────────────────────
+
+  async getRunState(runId: string): Promise<CrmState> {
+    const config = { configurable: { thread_id: runId } };
+    const snap = await this.graph.getState(config);
+    return snap.values as CrmState;
+  }
+
+  // ─── Pause / Resume ───────────────────────────────────────────────────────
 
   async pauseWorkflow(runId: string): Promise<void> {
     await this.prisma.analysisRun.update({
@@ -142,61 +228,67 @@ export class AiService implements OnModuleInit {
       where: { id: runId },
       data: { status: 'RUNNING' },
     });
-    void this.runWorkflow(runId, tenantId, dto);
+    void this.startFetch(runId, tenantId, dto);
   }
 
-  private async persistResults(
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  private async persistScoredResults(
     runId: string,
     tenantId: string,
-    state: Record<string, unknown>,
+    state: CrmState,
   ): Promise<void> {
-    const scoredCustomers = Array.isArray(state['scoredCustomers']) ? state['scoredCustomers'] : [];
-    const messages = Array.isArray(state['generatedMessages']) ? state['generatedMessages'] : [];
-    const messageMap = new Map(
-      messages.map((m: { customerId: string }) => [m.customerId, m]),
+    const scoredCustomers = Array.isArray(state.scoredCustomers) ? state.scoredCustomers : [];
+    if (scoredCustomers.length === 0) return;
+
+    const records = scoredCustomers.map((s) => ({
+      runId,
+      customerId: s.customerId,
+      tenantId,
+      totalScore: s.totalScore,
+      readinessLabel: s.readinessLabel,
+      conversionProbability: s.conversionProbability,
+      qualifies: s.qualifies,
+      breakdown: s.breakdown as object,
+      recommendations: s.recommendedProducts as object,
+      messageEn: null,
+      messageHi: null,
+      hasExistingLoan: s.hasExistingLoan,
+      loanPenalty: s.loanPenalty,
+      disqualifiedReason: s.disqualifiedReason ?? null,
+      scoreExplanation: s.scoreExplanation ?? null,
+      persona: s.persona ?? null,
+      llmAdjustment: s.llmAdjustment ?? null,
+      llmAdjustReason: s.llmAdjustReason ?? null,
+    }));
+
+    await this.prisma.scoredResult.createMany({ data: records, skipDuplicates: true });
+  }
+
+  private async persistMessages(runId: string, state: CrmState): Promise<void> {
+    const messages = Array.isArray(state.generatedMessages) ? state.generatedMessages : [];
+    if (messages.length === 0) return;
+
+    await Promise.all(
+      messages.map((m: { customerId: string; english?: string; hindi?: string }) =>
+        this.prisma.scoredResult.updateMany({
+          where: { runId, customerId: m.customerId },
+          data: {
+            messageEn: m.english ?? null,
+            messageHi: m.hindi ?? null,
+          },
+        }),
+      ),
     );
+  }
 
-    const records = scoredCustomers.map((s: {
-      customerId: string;
-      totalScore: number;
-      readinessLabel: string;
-      conversionProbability: number;
-      qualifies: boolean;
-      breakdown: object;
-      recommendedProducts: object;
-      hasExistingLoan: boolean;
-      loanPenalty: number;
-      disqualifiedReason?: string;
-      scoreExplanation?: string;
-      persona?: string;
-      llmAdjustment?: number;
-      llmAdjustReason?: string;
-    }) => {
-      const msg = messageMap.get(s.customerId) as { english?: string; hindi?: string } | undefined;
-      return {
-        runId,
-        customerId: s.customerId,
-        tenantId,
-        totalScore: s.totalScore,
-        readinessLabel: s.readinessLabel,
-        conversionProbability: s.conversionProbability,
-        qualifies: s.qualifies,
-        breakdown: s.breakdown,
-        recommendations: s.recommendedProducts,
-        messageEn: msg?.english ?? null,
-        messageHi: msg?.hindi ?? null,
-        hasExistingLoan: s.hasExistingLoan,
-        loanPenalty: s.loanPenalty,
-        disqualifiedReason: s.disqualifiedReason ?? null,
-        scoreExplanation: s.scoreExplanation ?? null,
-        persona: s.persona ?? null,
-        llmAdjustment: s.llmAdjustment ?? null,
-        llmAdjustReason: s.llmAdjustReason ?? null,
-      };
+  private async handleError(runId: string, error: unknown): Promise<void> {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    this.logger.error(`Workflow ${runId} failed: ${message}`);
+    await this.prisma.analysisRun.update({
+      where: { id: runId },
+      data: { status: 'FAILED', errorMessage: message, completedAt: new Date() },
     });
-
-    if (records.length > 0) {
-      await this.prisma.scoredResult.createMany({ data: records, skipDuplicates: true });
-    }
+    this.gateway.emitRunError(runId, { runId, error: message });
   }
 }

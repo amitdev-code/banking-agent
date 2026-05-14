@@ -7,8 +7,6 @@ import { defaultScoringConfig, type ScoringRulesConfig } from '@banking-crm/type
 
 import { PrismaService } from '../../database/prisma.service';
 
-const scoringConfigSchema = z.object({ config: z.record(z.unknown()) });
-
 @Injectable()
 export class ScoringConfigService {
   private readonly logger = new Logger(ScoringConfigService.name);
@@ -34,7 +32,9 @@ export class ScoringConfigService {
     return saved.rules as unknown as ScoringRulesConfig;
   }
 
-  async suggestConfig(tenantId: string): Promise<{ proposed: ScoringRulesConfig; explanation: string[] }> {
+  async suggestConfig(
+    tenantId: string,
+  ): Promise<{ proposed: ScoringRulesConfig; explanation: string[] }> {
     const [salaryDist, balanceDist, ageDist] = await Promise.all([
       this.prisma.$queryRaw<Array<{ p25: number; p50: number; p75: number; p90: number }>>`
         SELECT
@@ -82,7 +82,7 @@ export class ScoringConfigService {
       temperature: 0,
     }).withStructuredOutput(
       z.object({
-        proposed: z.record(z.unknown()),
+        proposed: z.string(),
         explanation: z.array(z.string()),
       }),
       { name: 'suggest_scoring_config' },
@@ -96,7 +96,7 @@ export class ScoringConfigService {
           'Given the actual customer portfolio distribution, propose scoring brackets that create ' +
           'good discrimination between low and high loan readiness. ' +
           'Use the existing config structure exactly — only update bracket thresholds and scores. ' +
-          'Return the full proposed config and an explanation array (one string per changed section).',
+          'Return the full proposed config as a JSON string in the "proposed" field, and an explanation array (one string per changed section).',
       },
       {
         role: 'user',
@@ -109,12 +109,15 @@ export class ScoringConfigService {
     ]);
 
     return {
-      proposed: result.proposed as unknown as ScoringRulesConfig,
+      proposed: JSON.parse(result.proposed) as ScoringRulesConfig,
       explanation: result.explanation,
     };
   }
 
-  async tuneConfig(tenantId: string, instruction: string): Promise<{ proposed: ScoringRulesConfig; changeLog: string[] }> {
+  async tuneConfig(
+    tenantId: string,
+    instruction: string,
+  ): Promise<{ proposed: ScoringRulesConfig; changeLog: string[] }> {
     const currentConfig = await this.getConfig(tenantId);
 
     const model = new ChatOpenAI({
@@ -123,7 +126,7 @@ export class ScoringConfigService {
       temperature: 0,
     }).withStructuredOutput(
       z.object({
-        proposed: z.record(z.unknown()),
+        proposed: z.string(),
         changeLog: z.array(z.string()),
       }),
       { name: 'tune_scoring_config' },
@@ -134,9 +137,9 @@ export class ScoringConfigService {
         role: 'system',
         content:
           'You are a credit risk expert updating a banking loan readiness scoring configuration. ' +
-          'Apply the user\'s natural language instruction to the current JSON config. ' +
-          'Return the full updated config and a changeLog array listing each field you changed and why. ' +
-          'Only change fields that clearly match the user\'s intent. Preserve all other values exactly.',
+          "Apply the user's natural language instruction to the current JSON config. " +
+          'Return the full updated config as a JSON string in the "proposed" field, and a changeLog array listing each field you changed and why. ' +
+          "Only change fields that clearly match the user's intent. Preserve all other values exactly.",
       },
       {
         role: 'user',
@@ -147,7 +150,7 @@ export class ScoringConfigService {
     ]);
 
     return {
-      proposed: result.proposed as unknown as ScoringRulesConfig,
+      proposed: JSON.parse(result.proposed) as ScoringRulesConfig,
       changeLog: result.changeLog,
     };
   }

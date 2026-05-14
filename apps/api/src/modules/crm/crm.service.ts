@@ -1,15 +1,11 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import type { SessionUser } from '@banking-crm/types';
 
 import { Prisma } from '@banking-crm/database';
 import { PrismaService } from '../../database/prisma.service';
 import { AiService } from '../ai/ai.service';
+import type { ConfirmCustomersDto } from './dto/confirm-customers.dto';
 import type { RunCrmDto } from './dto/run-crm.dto';
 import type { UpdateMessageDto } from './dto/update-message.dto';
 
@@ -34,14 +30,63 @@ export class CrmService {
       },
     });
 
-    // Fire and forget
+    // Fire and forget — runs planner + fetchCustomers, then pauses at AWAITING_SELECTION
     this.aiService
-      .runWorkflow(run.id, user.tenantId, dto)
-      .catch((err: unknown) =>
-        this.logger.error(`Background workflow error for run ${run.id}`, err),
-      );
+      .startFetch(run.id, user.tenantId, dto)
+      .catch((err: unknown) => this.logger.error(`Stage 1 error for run ${run.id}`, err));
 
     return { runId: run.id };
+  }
+
+  async confirmCustomers(tenantId: string, runId: string, dto: ConfirmCustomersDto): Promise<void> {
+    const run = await this.prisma.analysisRun.findFirst({ where: { id: runId, tenantId } });
+    if (!run) throw new NotFoundException(`Run ${runId} not found`);
+    if ((run.status as string) !== 'AWAITING_SELECTION') {
+      throw new BadRequestException(
+        `Run is not awaiting customer selection (status: ${run.status})`,
+      );
+    }
+
+    await this.prisma.analysisRun.update({
+      where: { id: runId },
+      data: { status: 'RUNNING' },
+    });
+
+    // Fire and forget — filters customers, runs analysis, pauses at AWAITING_APPROVAL
+    this.aiService
+      .continueWithAnalysis(runId, tenantId, dto.selectedCustomerIds)
+      .catch((err: unknown) => this.logger.error(`Stage 2 error for run ${runId}`, err));
+  }
+
+  async confirmMessages(tenantId: string, runId: string): Promise<void> {
+    const run = await this.prisma.analysisRun.findFirst({ where: { id: runId, tenantId } });
+    if (!run) throw new NotFoundException(`Run ${runId} not found`);
+    if ((run.status as string) !== 'AWAITING_APPROVAL') {
+      throw new BadRequestException(`Run is not awaiting message approval (status: ${run.status})`);
+    }
+
+    await this.prisma.analysisRun.update({
+      where: { id: runId },
+      data: { status: 'RUNNING' },
+    });
+
+    // Fire and forget — runs message generation, completes the workflow
+    this.aiService
+      .continueWithMessages(runId)
+      .catch((err: unknown) => this.logger.error(`Stage 3 error for run ${runId}`, err));
+  }
+
+  async getRunCustomers(tenantId: string, runId: string) {
+    const run = await this.prisma.analysisRun.findFirst({ where: { id: runId, tenantId } });
+    if (!run) throw new NotFoundException(`Run ${runId} not found`);
+
+    const state = await this.aiService.getRunState(runId);
+    return {
+      runId,
+      status: run.status,
+      customers: state.customers ?? [],
+      plannerNote: state.plannerNote,
+    };
   }
 
   async getHistory(tenantId: string, page: number, limit: number) {
@@ -65,7 +110,6 @@ export class CrmService {
       this.prisma.analysisRun.count({ where: { tenantId } }),
     ]);
 
-    // Normalise types: Decimal → number, Date → ISO string
     const items = rows.map((r) => ({
       ...r,
       avgScore: r.avgScore != null ? Number(r.avgScore) : null,
@@ -88,19 +132,16 @@ export class CrmService {
     });
     if (!run) throw new NotFoundException(`Run ${runId} not found`);
 
-    // Normalize Decimal fields to JS numbers so the frontend receives plain scalars
     const scoredResults = run.scoredResults.map((r) => ({
       ...r,
       totalScore: Number(r.totalScore),
       conversionProbability: Number(r.conversionProbability),
       loanPenalty: Number(r.loanPenalty),
-      // Flatten customer fields onto the result for CustomerCard
       fullName: r.customer.fullName,
       phone: r.customer.phone,
       city: r.customer.city,
       age: r.customer.age,
       avgMonthlyBalance: Number(r.customer.avgMonthlyBalance),
-      // Map DB column names → ScoredCustomer field names
       resultId: r.id,
       recommendedProducts: r.recommendations,
       customer: undefined,

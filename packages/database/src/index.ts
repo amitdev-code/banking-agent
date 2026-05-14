@@ -1,3 +1,3 @@
 export { prisma } from './client';
-export { PrismaClient } from '@prisma/client';
+export { PrismaClient, RunStatus } from '@prisma/client';
 export { Prisma } from '@prisma/client';

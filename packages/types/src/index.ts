@@ -7,3 +7,4 @@ export * from './scoring-config.types';
 export * from './crm.types';
 export * from './ai.types';
 export * from './ws.types';
+export * from './session.types';

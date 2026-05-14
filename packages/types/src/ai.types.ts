@@ -12,6 +12,14 @@ export interface GeneratedMessage {
   editedContent?: string;
 }
 
+export interface SpendingInsight {
+  customerId: string;
+  summary: string;
+  keyCategories: string[];
+  riskFlags: string[];
+  opportunities: string[];
+}
+
 export interface CrmAgentState {
   runId: string;
   tenantId: string;
@@ -24,6 +32,7 @@ export interface CrmAgentState {
   customerPersonas: CustomerPersonaResult[];
   recommendations: ProductRecommendation[];
   generatedMessages: GeneratedMessage[];
+  spendingInsights?: SpendingInsight[];
   scoringConfig: ScoringRulesConfig;
   error?: string;
   isPaused: boolean;

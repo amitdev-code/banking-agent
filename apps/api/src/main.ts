@@ -9,6 +9,7 @@ import session from 'express-session';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { CrmGateway } from './modules/crm/crm.gateway';
+import { CrmSessionGateway } from './modules/crm-session/crm-session.gateway';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -37,6 +38,8 @@ async function bootstrap(): Promise<void> {
   // Wire session middleware into Socket.io
   const gateway = app.get(CrmGateway);
   gateway.setSessionMiddleware(sessionMiddleware);
+  const chatGateway = app.get(CrmSessionGateway);
+  chatGateway.setSessionMiddleware(sessionMiddleware);
 
   app.useGlobalPipes(
     new ValidationPipe({

@@ -12,6 +12,8 @@ import type { Server, Socket } from 'socket.io';
 import type { RequestHandler } from 'express';
 
 import type {
+  WorkflowAwaitingApprovalEvent,
+  WorkflowAwaitingSelectionEvent,
   WorkflowCompleteEvent,
   WorkflowErrorEvent,
   WorkflowStepEvent,
@@ -34,7 +36,11 @@ export class CrmGateway implements OnGatewayInit, OnGatewayConnection {
   afterInit(server: Server): void {
     if (this.sessionMiddleware) {
       server.use((socket, next) => {
-        this.sessionMiddleware!(socket.request as Parameters<RequestHandler>[0], {} as Parameters<RequestHandler>[1], next as Parameters<RequestHandler>[2]);
+        this.sessionMiddleware!(
+          socket.request as Parameters<RequestHandler>[0],
+          {} as Parameters<RequestHandler>[1],
+          next as Parameters<RequestHandler>[2],
+        );
       });
     }
     this.logger.log('CRM WebSocket gateway initialized');
@@ -55,10 +61,7 @@ export class CrmGateway implements OnGatewayInit, OnGatewayConnection {
   }
 
   @SubscribeMessage('subscribe')
-  handleSubscribe(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() data: { runId: string },
-  ): void {
+  handleSubscribe(@ConnectedSocket() client: Socket, @MessageBody() data: { runId: string }): void {
     void client.join(`run:${data.runId}`);
     this.logger.debug(`Client ${client.id} subscribed to run ${data.runId}`);
   }
@@ -69,6 +72,14 @@ export class CrmGateway implements OnGatewayInit, OnGatewayConnection {
 
   emitRunComplete(runId: string, event: WorkflowCompleteEvent): void {
     this.server.to(`run:${runId}`).emit('run:complete', event);
+  }
+
+  emitAwaitingSelection(runId: string, event: WorkflowAwaitingSelectionEvent): void {
+    this.server.to(`run:${runId}`).emit('run:awaiting-selection', event);
+  }
+
+  emitAwaitingApproval(runId: string, event: WorkflowAwaitingApprovalEvent): void {
+    this.server.to(`run:${runId}`).emit('run:awaiting-approval', event);
   }
 
   emitRunError(runId: string, event: WorkflowErrorEvent): void {
